@@ -1,0 +1,23 @@
+# Printer Interface Requirements
+
+# Web framework
+Flask==2.3.3
+Flask-SocketIO==5.3.6
+eventlet==0.33.3
+
+# Hardware control
+pigpio==1.78
+pyserial==3.5
+
+# Camera control
+picamera2==0.3.12
+
+# Configuration
+PyYAML==6.0.1
+
+# Optional: For config validation
+pydantic==2.5.0
+
+# Development dependencies
+pytest==7.4.3
+pytest-asyncio==0.21.1

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Printer Interface - {{ mode|title }} Mode</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Printer Interface</h1>
+            <div class="mode-indicator">
+                <span class="mode-badge mode-{{ mode }}">{{ mode|title }} Mode</span>
+            </div>
+        </header>
+
+        <div class="main-content">
+            <!-- Camera Preview -->
+            <div class="camera-section">
+                <h2>Camera Preview</h2>
+                <div class="camera-container">
+                    <img id="camera-preview" src="/stream" alt="Camera Preview">
+                    <div class="camera-controls">
+                        <button id="capture-btn" class="btn btn-primary">Capture High-Res</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Control Panel -->
+            <div class="control-panel">
+                <h2>Controls</h2>
+                
+                <!-- Nozzle Controls -->
+                <div class="control-group">
+                    <h3>Nozzle Position</h3>
+                    <div class="position-display">
+                        <div class="position-item">
+                            <label>X:</label>
+                            <span id="nozzle-x">0.0</span> mm
+                        </div>
+                        <div class="position-item">
+                            <label>Y:</label>
+                            <span id="nozzle-y">0.0</span> mm
+                        </div>
+                        <div class="position-item">
+                            <label>Z:</label>
+                            <span id="nozzle-z">0.0</span> mm
+                        </div>
+                    </div>
+                    
+                    <div class="nozzle-controls">
+                        <div class="control-row">
+                            <button id="move-nozzle-btn" class="btn btn-secondary">Move Nozzle</button>
+                            <input type="number" id="nozzle-x-input" placeholder="X" step="0.1">
+                            <input type="number" id="nozzle-y-input" placeholder="Y" step="0.1">
+                            <input type="number" id="nozzle-z-input" placeholder="Z" step="0.1">
+                        </div>
+                        <div class="control-row">
+                            <button id="move-xy-btn" class="btn btn-secondary">Move XY</button>
+                            <input type="number" id="nozzle-xy-x-input" placeholder="X" step="0.1">
+                            <input type="number" id="nozzle-xy-y-input" placeholder="Y" step="0.1">
+                        </div>
+                        <div class="control-row">
+                            <button id="move-z-btn" class="btn btn-secondary">Move Z</button>
+                            <input type="number" id="nozzle-z-only-input" placeholder="Z" step="0.1">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Zoom Controls -->
+                <div class="control-group">
+                    <h3>Zoom Control</h3>
+                    <div class="zoom-display">
+                        <div class="position-item">
+                            <label>Position:</label>
+                            <span id="zoom-position">0.0</span> mm
+                        </div>
+                        <div class="position-item">
+                            <label>Magnification:</label>
+                            <span id="zoom-magnification">0.0</span>x
+                        </div>
+                        <div class="position-item">
+                            <label>Percentage:</label>
+                            <span id="zoom-percentage">0.0</span>%
+                        </div>
+                        <div class="position-item">
+                            <label>Status:</label>
+                            <span id="zoom-status">Not Homed</span>
+                        </div>
+                    </div>
+                    
+                    <div class="zoom-controls">
+                        <button id="home-zoom-btn" class="btn btn-warning">Home Zoom</button>
+                        <button id="zoom-in-btn" class="btn btn-secondary">Zoom In</button>
+                        <button id="zoom-out-btn" class="btn btn-secondary">Zoom Out</button>
+                        <input type="number" id="zoom-steps-input" placeholder="Steps" value="100" min="1">
+                    </div>
+                </div>
+
+                <!-- Emergency Stop -->
+                <div class="control-group emergency-group">
+                    <button id="emergency-stop-btn" class="btn btn-danger btn-large">EMERGENCY STOP</button>
+                </div>
+            </div>
+
+            <!-- Status Panel -->
+            <div class="status-panel">
+                <h2>System Status</h2>
+                <div class="status-display">
+                    <div class="status-item">
+                        <label>System Status:</label>
+                        <span id="system-status" class="status-idle">Idle</span>
+                    </div>
+                    <div class="status-item">
+                        <label>Connection:</label>
+                        <span id="connection-status" class="status-disconnected">Disconnected</span>
+                    </div>
+                    <div class="status-item">
+                        <label>Last Command:</label>
+                        <span id="last-command">None</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,62 @@
+# Local mode configuration for printer interface
+# This should be identical to config_connected.yml for realistic simulation
+
+# Camera / optics
+camera:
+  sensor_width: 6.29  # mm
+  sensor_height: 4.71  # mm
+  pixel_pitch: 3.76  # µm
+  device: "/dev/video0"
+
+# Lens configuration
+lens:
+  focal_length: 8.0  # mm
+  nominal_bfl: 6.5  # mm (back focal length)
+
+# Zoom actuator (sensor translation)
+zoom:
+  step_pin: 18  # GPIO pin for step signal
+  dir_pin: 19   # GPIO pin for direction signal
+  enable_pin: 20  # GPIO pin for enable signal
+  home_switch_pin: 17  # GPIO pin for home switch
+  direction_increase: "away"  # which direction increments s'
+  steps_per_mm: 200.0  # steps per mm
+  max_s_prime: 50.0  # mm - maximum image distance (placeholder)
+  min_s_prime: 16.0  # mm - minimum image distance
+  travel_safe_margin: 1.0  # mm - software safety margin
+
+# Printer configuration
+printer:
+  serial_device: "/dev/ttyUSB0"
+  baud_rate: 115200
+  safe_limits:
+    x_min: 0.0  # mm
+    x_max: 220.0  # mm
+    y_min: 0.0  # mm
+    y_max: 220.0  # mm
+    z_min: 0.0  # mm
+    z_max: 250.0  # mm
+  move_feedrate_default: 1500  # mm/min
+
+# Streaming / capture
+stream:
+  preview_width: 640  # px
+  preview_height: 480  # px
+  preview_fps: 5  # fps
+capture:
+  width: 4056  # px
+  height: 3040  # px
+
+# Safety / operational
+emergency_stop:
+  gpio_pin: 27  # GPIO pin for emergency stop button
+
+# Power configuration
+power:
+  motor_supply_voltage: 12.0  # V
+  motor_supply_max_current: 4.0  # A
+
+# Simulation specific settings
+simulation:
+  movement_delay: 0.1  # seconds - how fast to simulate movements
+  camera_test_image: "test_pattern.jpg"  # test image for simulation
