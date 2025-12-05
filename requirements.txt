@@ -1,23 +1,23 @@
 # Printer Interface Requirements
 
 # Web framework
-Flask==2.3.3
-Flask-SocketIO==5.3.6
-eventlet==0.33.3
+Flask>=2.3.0
+Flask-SocketIO>=5.3.0
+eventlet>=0.33.0
 
-# Hardware control
-pigpio==1.78
-pyserial==3.5
+# Hardware control (for connected mode)
+pigpio>=1.78
+pyserial>=3.5
 
-# Camera control
-picamera2==0.3.12
+# Camera control (for connected mode on Raspberry Pi)
+# Note: picamera2 requires system packages (libcamera) on Raspberry Pi
+# Install with: sudo apt install python3-picamera2
+# Or use venv with --system-site-packages
+picamera2>=0.3.12
+
+# Image processing (for test mode camera simulation)
+Pillow>=9.0.0
+numpy>=1.21.0
 
 # Configuration
-PyYAML==6.0.1
-
-# Optional: For config validation
-pydantic==2.5.0
-
-# Development dependencies
-pytest==7.4.3
-pytest-asyncio==0.21.1
+PyYAML>=6.0.0

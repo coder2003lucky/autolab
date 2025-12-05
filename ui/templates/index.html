@@ -6,33 +6,55 @@
     <title>Printer Interface - {{ mode|title }} Mode</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script>
+        // Verify Three.js loaded
+        window.addEventListener('load', function() {
+            if (typeof THREE === 'undefined') {
+                console.error('Three.js failed to load! Trying fallback...');
+                // Fallback to another CDN
+                const script = document.createElement('script');
+                script.src = 'https://unpkg.com/three@0.128.0/build/three.min.js';
+                script.onload = function() {
+                    console.log('Three.js loaded from fallback CDN');
+                };
+                script.onerror = function() {
+                    console.error('Three.js failed to load from all CDNs!');
+                };
+                document.head.appendChild(script);
+            } else {
+                console.log('Three.js loaded successfully, version:', THREE.REVISION);
+            }
+        });
+    </script>
 </head>
 <body>
     <div class="container">
         <header>
             <h1>Printer Interface</h1>
             <div class="mode-indicator">
-                <span class="mode-badge mode-{{ mode }}">{{ mode|title }} Mode</span>
+                <span class="mode-badge mode-{{ mode }}">
+                    {% if mode == 'test' %}TEST MODE (Simulation){% else %}CONNECTED MODE (Real Hardware){% endif %}
+                </span>
             </div>
         </header>
 
         <div class="main-content">
-            <!-- Camera Preview -->
-            <div class="camera-section">
-                <h2>Camera Preview</h2>
-                <div class="camera-container">
-                    <img id="camera-preview" src="/stream" alt="Camera Preview">
-                    <div class="camera-controls">
-                        <button id="capture-btn" class="btn btn-primary">Capture High-Res</button>
+            <!-- Left Column -->
+            <div class="left-column">
+                <!-- Camera Preview -->
+                <div class="camera-section">
+                    <h2>Camera Preview</h2>
+                    <div class="camera-container">
+                        <img id="camera-preview" src="/stream" alt="Camera Preview">
+                        <div class="camera-controls">
+                            <button id="capture-btn" class="btn btn-primary">Capture High-Res</button>
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- Control Panel -->
-            <div class="control-panel">
-                <h2>Controls</h2>
-                
-                <!-- Nozzle Controls -->
+                <!-- Nozzle Position Display -->
                 <div class="control-group">
                     <h3>Nozzle Position</h3>
                     <div class="position-display">
@@ -50,77 +72,88 @@
                         </div>
                     </div>
                     
+                    <!-- Homing Button -->
+                    <div class="control-row">
+                        <button id="home-nozzle-btn" class="btn btn-primary">Home Nozzle</button>
+                    </div>
+                </div>
+
+                <!-- Combined Movement Controls -->
+                <div class="control-group">
+                    <h3>Movement Controls</h3>
                     <div class="nozzle-controls">
-                        <div class="control-row">
-                            <button id="move-nozzle-btn" class="btn btn-secondary">Move Nozzle</button>
-                            <input type="number" id="nozzle-x-input" placeholder="X" step="0.1">
-                            <input type="number" id="nozzle-y-input" placeholder="Y" step="0.1">
-                            <input type="number" id="nozzle-z-input" placeholder="Z" step="0.1">
+                        <div class="axis-control">
+                            <label>X</label>
+                            <button id="x-minus-btn" class="btn btn-small btn-secondary">−1</button>
+                            <button id="x-plus-btn" class="btn btn-small btn-primary">+1</button>
+                            <input type="number" id="nozzle-x-input" class="position-input" placeholder="X (mm)" step="0.1" title="Absolute X position in mm">
+                            <button id="move-x-btn" class="btn btn-primary btn-small">Move X</button>
                         </div>
-                        <div class="control-row">
-                            <button id="move-xy-btn" class="btn btn-secondary">Move XY</button>
-                            <input type="number" id="nozzle-xy-x-input" placeholder="X" step="0.1">
-                            <input type="number" id="nozzle-xy-y-input" placeholder="Y" step="0.1">
+                        <div class="axis-control">
+                            <label>Y</label>
+                            <button id="y-minus-btn" class="btn btn-small btn-secondary">−1</button>
+                            <button id="y-plus-btn" class="btn btn-small btn-primary">+1</button>
+                            <input type="number" id="nozzle-y-input" class="position-input" placeholder="Y (mm)" step="0.1" title="Absolute Y position in mm">
+                            <button id="move-y-btn" class="btn btn-primary btn-small">Move Y</button>
                         </div>
-                        <div class="control-row">
-                            <button id="move-z-btn" class="btn btn-secondary">Move Z</button>
-                            <input type="number" id="nozzle-z-only-input" placeholder="Z" step="0.1">
+                        <div class="axis-control">
+                            <label>Z</label>
+                            <button id="z-minus-btn" class="btn btn-small btn-secondary">−1</button>
+                            <button id="z-plus-btn" class="btn btn-small btn-primary">+1</button>
+                            <input type="number" id="nozzle-z-input" class="position-input" placeholder="Z (mm)" step="0.1" title="Absolute Z position in mm">
+                            <button id="move-z-btn" class="btn btn-primary btn-small">Move Z</button>
                         </div>
                     </div>
                 </div>
 
-                <!-- Zoom Controls -->
+            </div>
+
+            <!-- Right Column -->
+            <div class="right-column">
+                <!-- 3D Visualization -->
                 <div class="control-group">
-                    <h3>Zoom Control</h3>
-                    <div class="zoom-display">
-                        <div class="position-item">
-                            <label>Position:</label>
-                            <span id="zoom-position">0.0</span> mm
+                    <h3>3D Nozzle Position</h3>
+                    <div class="visualization-legend" style="display: flex; gap: 12px; margin-bottom: 6px; padding: 6px; background: #f8f9fa; border-radius: 4px; align-items: center; flex-wrap: wrap; font-size: 0.75rem;">
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <div style="width: 10px; height: 10px; background: #00ff00; border-radius: 50%; border: 1px solid #00cc00;"></div>
+                            <span style="color: #2c3e50;"><strong>Green:</strong> Origin (0,0,0)</span>
                         </div>
-                        <div class="position-item">
-                            <label>Magnification:</label>
-                            <span id="zoom-magnification">0.0</span>x
-                        </div>
-                        <div class="position-item">
-                            <label>Percentage:</label>
-                            <span id="zoom-percentage">0.0</span>%
-                        </div>
-                        <div class="position-item">
-                            <label>Status:</label>
-                            <span id="zoom-status">Not Homed</span>
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <div style="width: 12px; height: 12px; background: #ff0000; border-radius: 50%; border: 1px solid #cc0000;"></div>
+                            <span style="color: #2c3e50;"><strong>Red:</strong> Current position</span>
                         </div>
                     </div>
-                    
-                    <div class="zoom-controls">
-                        <button id="home-zoom-btn" class="btn btn-warning">Home Zoom</button>
-                        <button id="zoom-in-btn" class="btn btn-secondary">Zoom In</button>
-                        <button id="zoom-out-btn" class="btn btn-secondary">Zoom Out</button>
-                        <input type="number" id="zoom-steps-input" placeholder="Steps" value="100" min="1">
+                    <div style="position: relative;">
+                        <div id="visualization-container" style="width: 100%; height: 240px; border: 1px solid #ccc; background: #f0f0f0;"></div>
+                        <div style="position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 5px; z-index: 10;">
+                            <button id="zoom-in-btn" class="btn btn-small btn-secondary" style="width: 40px; height: 40px; font-size: 18px; padding: 0; border-radius: 4px;">+</button>
+                            <button id="zoom-out-btn" class="btn btn-small btn-secondary" style="width: 40px; height: 40px; font-size: 18px; padding: 0; border-radius: 4px;">−</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Status Panel -->
+                <div class="status-panel">
+                    <h2>System Status</h2>
+                    <div class="status-display">
+                        <div class="status-item">
+                            <label>System Status:</label>
+                            <span id="system-status" class="status-idle">Idle</span>
+                        </div>
+                        <div class="status-item">
+                            <label>Connection:</label>
+                            <span id="connection-status" class="status-disconnected">Disconnected</span>
+                        </div>
+                        <div class="status-item">
+                            <label>Last Command:</label>
+                            <span id="last-command">None</span>
+                        </div>
                     </div>
                 </div>
 
                 <!-- Emergency Stop -->
                 <div class="control-group emergency-group">
                     <button id="emergency-stop-btn" class="btn btn-danger btn-large">EMERGENCY STOP</button>
-                </div>
-            </div>
-
-            <!-- Status Panel -->
-            <div class="status-panel">
-                <h2>System Status</h2>
-                <div class="status-display">
-                    <div class="status-item">
-                        <label>System Status:</label>
-                        <span id="system-status" class="status-idle">Idle</span>
-                    </div>
-                    <div class="status-item">
-                        <label>Connection:</label>
-                        <span id="connection-status" class="status-disconnected">Disconnected</span>
-                    </div>
-                    <div class="status-item">
-                        <label>Last Command:</label>
-                        <span id="last-command">None</span>
-                    </div>
                 </div>
             </div>
         </div>

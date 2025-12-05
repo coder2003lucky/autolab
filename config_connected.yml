@@ -1,34 +1,12 @@
 # Connected mode configuration for printer interface
-# This should be identical to config_local.yml for consistent behavior
-
-# Camera / optics
-camera:
-  sensor_width: 6.29  # mm
-  sensor_height: 4.71  # mm
-  pixel_pitch: 3.76  # µm
-  device: "/dev/video0"
-
-# Lens configuration
-lens:
-  focal_length: 8.0  # mm
-  nominal_bfl: 6.5  # mm (back focal length)
-
-# Zoom actuator (sensor translation)
-zoom:
-  step_pin: 18  # GPIO pin for step signal
-  dir_pin: 19   # GPIO pin for direction signal
-  enable_pin: 20  # GPIO pin for enable signal
-  home_switch_pin: 17  # GPIO pin for home switch
-  direction_increase: "away"  # which direction increments s'
-  steps_per_mm: 200.0  # steps per mm
-  max_s_prime: 50.0  # mm - maximum image distance (placeholder)
-  min_s_prime: 16.0  # mm - minimum image distance
-  travel_safe_margin: 1.0  # mm - software safety margin
 
 # Printer configuration
 printer:
   serial_device: "/dev/ttyUSB0"
   baud_rate: 115200
+  # If your printer has Y and Z axes physically swapped (Y button moves Z motor, etc.),
+  # set this to true to swap them in G-code commands
+  swap_yz_axes: true  # Set to true if Y and Z are swapped on your printer
   safe_limits:
     x_min: 0.0  # mm
     x_max: 220.0  # mm
@@ -38,20 +16,24 @@ printer:
     z_max: 250.0  # mm
   move_feedrate_default: 1500  # mm/min
 
-# Streaming / capture
+# Camera configuration
+# For Arducam C-mount LN046 manual focus lens with Raspberry Pi HQ Camera
+camera:
+  # IMPORTANT: The LN046 is a PHYSICAL manual focus lens
+  # You must adjust focus by physically rotating the focus ring on the lens itself
+  # The focus_distance setting below is for motorized focus lenses only (likely won't work for LN046)
+  focus_distance: null  # Leave as null - LN046 uses physical focus ring adjustment
+  # Image quality settings (these WILL help with blurriness)
+  sharpness: 2.0  # Sharpness level (0.0-16.0, default 1.0) - higher = sharper but may increase noise
+  jpeg_quality: 85  # JPEG compression quality (1-100, default 75) - higher = better quality but larger files
+
+# Streaming
+# Higher resolution for better quality (HQ Camera supports up to 4056x3040)
 stream:
-  preview_width: 640  # px
-  preview_height: 480  # px
-  preview_fps: 5  # fps
-capture:
-  width: 4056  # px
-  height: 3040  # px
+  preview_width: 1920  # px (increased for better quality)
+  preview_height: 1080  # px (increased for better quality)
+  preview_fps: 15  # fps (reduced slightly for higher resolution)
 
 # Safety / operational
 emergency_stop:
   gpio_pin: 27  # GPIO pin for emergency stop button
-
-# Power configuration
-power:
-  motor_supply_voltage: 12.0  # V
-  motor_supply_max_current: 4.0  # A

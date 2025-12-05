@@ -41,16 +41,6 @@ class Position:
 
 
 @dataclass
-class ZoomState:
-    """Zoom actuator state."""
-    s_prime_mm: float  # Image distance in mm
-    magnification: float  # Current magnification (e.g., 5.0x)
-    percentage: float   # Zoom percentage (0-100)
-    is_homed: bool     # Whether zoom actuator has completed homing sequence (found physical reference position via endstop switch)
-    is_moving: bool    # Whether zoom is currently moving
-
-
-@dataclass
 class CommandAck:
     """Command acknowledgment."""
     id: str
@@ -65,7 +55,6 @@ class TelemetryData:
     """Telemetry data structure."""
     timestamp: float
     nozzle: Position
-    zoom: ZoomState
     status: SystemStatus
     error_message: Optional[str] = None
 
@@ -175,50 +164,13 @@ class HardwareInterface(ABC):
         """
         pass
     
-    # Zoom control methods
     @abstractmethod
-    async def zoom_in(self, steps: int) -> CommandAck:
+    async def home_nozzle(self) -> CommandAck:
         """
-        Zoom in by specified number of steps.
-        
-        Args:
-            steps: Number of steps to move
-            
-        Returns:
-            CommandAck: Command acknowledgment
-        """
-        pass
-    
-    @abstractmethod
-    async def zoom_out(self, steps: int) -> CommandAck:
-        """
-        Zoom out by specified number of steps.
-        
-        Args:
-            steps: Number of steps to move
-            
-        Returns:
-            CommandAck: Command acknowledgment
-        """
-        pass
-    
-    @abstractmethod
-    async def home_zoom(self) -> CommandAck:
-        """
-        Home the zoom actuator.
+        Home the nozzle to origin (0, 0, 0).
         
         Returns:
             CommandAck: Command acknowledgment
-        """
-        pass
-    
-    @abstractmethod
-    async def get_zoom_state(self) -> ZoomState:
-        """
-        Get current zoom state.
-        
-        Returns:
-            ZoomState: Current zoom position and status
         """
         pass
     
@@ -293,7 +245,6 @@ class HardwareInterface(ABC):
         Considers:
         - System status (not ERROR or EMERGENCY_STOP)
         - Emergency stop not active
-        - Zoom is homed (for zoom operations)
         
         Returns:
             bool: True if ready, False if not
@@ -310,19 +261,6 @@ class HardwareInterface(ABC):
             x: X coordinate in mm
             y: Y coordinate in mm
             z: Z coordinate in mm
-            
-        Returns:
-            bool: True if within limits, False otherwise
-        """
-        pass
-    
-    @abstractmethod
-    def check_zoom_limits(self, s_prime_mm: float) -> bool:
-        """
-        Check if zoom position is within safe limits.
-        
-        Args:
-            s_prime_mm: Image distance in mm
             
         Returns:
             bool: True if within limits, False otherwise
@@ -429,12 +367,6 @@ class HardwareInterface(ABC):
                 ack = await self.move_nozzle_xy(**command['params'])
             elif command['type'] == 'move_nozzle_z':
                 ack = await self.move_nozzle_z(**command['params'])
-            elif command['type'] == 'zoom_in':
-                ack = await self.zoom_in(**command['params'])
-            elif command['type'] == 'zoom_out':
-                ack = await self.zoom_out(**command['params'])
-            elif command['type'] == 'home_zoom':
-                ack = await self.home_zoom()
             elif command['type'] == 'emergency_stop':
                 ack = await self.emergency_stop()
             else:
