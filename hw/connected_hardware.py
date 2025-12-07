@@ -26,34 +26,69 @@ class ConnectedHardware(HardwareInterface):
         self.nozzle_moving = False
         self.camera_streaming = False
         self.stream_url = None
+        self._loop = None  # Will be set to current event loop when needed
         
+    def _get_loop(self):
+        """Get the current event loop, creating one if necessary."""
+        if self._loop is None:
+            try:
+                self._loop = asyncio.get_event_loop()
+            except RuntimeError:
+                self._loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(self._loop)
+        return self._loop
+    
+    async def _run_in_executor(self, func, *args):
+        """Run a blocking function in a thread executor."""
+        loop = self._get_loop()
+        return await loop.run_in_executor(None, func, *args)
+    
     async def initialize(self) -> bool:
-        """Initialize connected hardware."""
+        """Initialize connected hardware following Anycubic Kobra 2 Neo initialization pattern."""
         # Initialize pigpio
         self.pi = pigpio.pi()
         if not self.pi.connected:
             raise RuntimeError("Failed to connect to pigpio daemon")
         
         # Initialize serial connection to printer
-        self.printer_serial = serial.Serial(
-            port=self.config['printer']['serial_device'],
-            baudrate=self.config['printer'].get('baud_rate', 115200),
-            timeout=1
-        )
+        serial_port = self.config['printer']['serial_device']
+        baud_rate = self.config['printer'].get('baud_rate', 115200)
         
-        # Wait for printer to wake up
-        time.sleep(2)
+        print(f"Connecting to {serial_port} at {baud_rate}...")
         
-        # FORCE SAFE MODES
-        self.printer_serial.write(b"G21\n")  # Set units to Millimeters
-        self.printer_serial.write(b"G90\n")  # Set to Absolute Positioning
+        # Serial.Serial() is blocking, run it in executor
+        def _open_serial():
+            return serial.Serial(
+                port=serial_port,
+                baudrate=baud_rate,
+                timeout=1
+            )
         
-        # Wait for commands to be processed
-        time.sleep(1)
+        self.printer_serial = await self._run_in_executor(_open_serial)
+        
+        # CRITICAL: When you open the port, the printer usually reboots (DTR reset).
+        # We must wait a few seconds for it to be ready.
+        # Use asyncio.sleep instead of time.sleep to avoid blocking the event loop
+        print("Waiting for printer to initialize after connection (3 seconds)...")
+        await asyncio.sleep(3)
+        
+        # Clear any startup text (like "Marlin x.x.x" or boot messages)
+        # reset_input_buffer() is blocking, run it in executor
+        await self._run_in_executor(self.printer_serial.reset_input_buffer)
+        print("Printer connected and ready.\n")
+        
+        # Set safe modes: G21 (millimeters) and G90 (absolute positioning)
+        print("Setting safe modes (G21: millimeters, G90: absolute positioning)...")
+        ack1 = await self._send_gcode("G21")  # Set units to Millimeters
+        ack2 = await self._send_gcode("G90")  # Set to Absolute Positioning
+        
+        if ack1.status != CommandStatus.OK or ack2.status != CommandStatus.OK:
+            print(f"WARNING: Failed to set safe modes. G21: {ack1.status}, G90: {ack2.status}")
+            print("Continuing anyway - printer may already be in correct mode.")
         
         # Automatically home the nozzle on initialization
         # Note: This may take 30-60 seconds depending on printer
-        print("Homing nozzle to origin (0, 0, 0)...")
+        print("\nHoming nozzle to origin (0, 0, 0)...")
         print("(This may take 30-60 seconds - please wait...)")
         ack = await self.home_nozzle()
         if ack.status != CommandStatus.OK:
@@ -70,7 +105,8 @@ class ConnectedHardware(HardwareInterface):
     async def shutdown(self) -> bool:
         """Shutdown connected hardware."""
         if self.printer_serial and self.printer_serial.is_open:
-            self.printer_serial.close()
+            # Serial.close() is blocking, run it in executor
+            await self._run_in_executor(self.printer_serial.close)
         if self.pi:
             self.pi.stop()
         return True
@@ -81,9 +117,87 @@ class ConnectedHardware(HardwareInterface):
         self.pi.set_mode(self.config['emergency_stop']['gpio_pin'], pigpio.INPUT)
         self.pi.set_pull_up_down(self.config['emergency_stop']['gpio_pin'], pigpio.PUD_UP)
     
+    async def _send_gcode(self, command: str, timeout: float = 5.0) -> CommandAck:
+        """
+        Send a G-code command and wait for 'ok' response.
+        
+        This follows the pattern from the Anycubic Kobra 2 Neo guide:
+        - Send command with newline
+        - Read responses until we get 'ok' or timeout
+        
+        All blocking serial operations are run in a thread executor to avoid
+        blocking the event loop.
+        
+        Args:
+            command: G-code command (without newline)
+            timeout: Maximum time to wait for 'ok' response (seconds)
+            
+        Returns:
+            CommandAck with status OK if 'ok' received, ERROR otherwise
+        """
+        if not self.printer_serial or not self.printer_serial.is_open:
+            return CommandAck(
+                id=f"gcode_{int(time.time() * 1000)}",
+                status=CommandStatus.ERROR,
+                message="Printer serial port not open",
+                timestamp=time.time()
+            )
+        
+        command_id = f"gcode_{int(time.time() * 1000)}"
+        start_time = time.time()
+        
+        # G-code must end with a newline character (\n)
+        full_command = f"{command}\n"
+        
+        # Serial.write() is blocking, run it in executor
+        def _write_command():
+            self.printer_serial.write(full_command.encode('utf-8'))
+        
+        await self._run_in_executor(_write_command)
+        
+        # Read the response lines until we get 'ok' or timeout
+        # Use asyncio.sleep instead of time.sleep in the loop
+        while (time.time() - start_time) < timeout:
+            try:
+                # Serial.readline() is blocking, run it in executor
+                def _read_line():
+                    return self.printer_serial.readline().decode('utf-8').strip()
+                
+                line = await self._run_in_executor(_read_line)
+                
+                if line:
+                    # Standard Marlin firmware replies with "ok" when done
+                    if line.lower().startswith('ok'):
+                        return CommandAck(
+                            id=command_id,
+                            status=CommandStatus.OK,
+                            message=f"Command '{command}' completed",
+                            timestamp=time.time()
+                        )
+                    # Check for error responses
+                    if 'error' in line.lower() or 'resend' in line.lower():
+                        return CommandAck(
+                            id=command_id,
+                            status=CommandStatus.ERROR,
+                            message=f"Printer error: {line}",
+                            timestamp=time.time()
+                        )
+            except Exception as e:
+                # If readline times out or fails, continue waiting
+                await asyncio.sleep(0.1)
+                continue
+        
+        # Timeout - no 'ok' received
+        return CommandAck(
+            id=command_id,
+            status=CommandStatus.ERROR,
+            message=f"Timeout waiting for 'ok' response to '{command}'",
+            timestamp=time.time()
+        )
+    
     # Nozzle control methods
     async def move_nozzle(self, x: float, y: float, z: float, feedrate: int) -> CommandAck:
-        """Move printer nozzle to specified position."""
+        """Move printer nozzle to specified position using G1 command."""
         if not self.check_nozzle_limits(x, y, z):
             return CommandAck(
                 id=f"move_nozzle_{int(time.time() * 1000)}",
@@ -114,27 +228,21 @@ class ConnectedHardware(HardwareInterface):
             self.nozzle_pos = Position(x, y, z)
         else:
             # Normal operation - no swap
+            # G1 = Linear move, F = feedrate (speed)
             gcode = f"G1 X{x:.3f} Y{y:.3f} Z{z:.3f} F{feedrate}"
             self.nozzle_pos = Position(x, y, z)
         
-        self.printer_serial.write(f"{gcode}\n".encode())
+        # Use the helper method to send G-code and wait for 'ok'
+        # Movement commands may take longer, so use a longer timeout
+        ack = await self._send_gcode(gcode, timeout=30.0)
         
-        # Wait for acknowledgment
-        response = self.printer_serial.readline().decode().strip()
-        if "ok" not in response.lower():
-            return CommandAck(
-                id=f"move_nozzle_{int(time.time() * 1000)}",
-                status=CommandStatus.ERROR,
-                message=f"Printer error: {response}",
-                timestamp=time.time()
-            )
+        if ack.status == CommandStatus.OK:
+            # Update system status to moving, then back to idle
+            self.system_status = SystemStatus.MOVING
+            self.nozzle_moving = True
+            # Note: Status will be updated to IDLE when telemetry reports idle
         
-        return CommandAck(
-            id=f"move_nozzle_{int(time.time() * 1000)}",
-            status=CommandStatus.OK,
-            message="Movement completed",
-            timestamp=time.time()
-        )
+        return ack
     
     async def move_nozzle_xy(self, x: float, y: float, feedrate: int) -> CommandAck:
         """Move printer nozzle XY only (Z unchanged)."""
@@ -153,7 +261,7 @@ class ConnectedHardware(HardwareInterface):
         return Position(self.nozzle_pos.x, self.nozzle_pos.y, self.nozzle_pos.z)
     
     async def home_nozzle(self) -> CommandAck:
-        """Home the nozzle to origin (0, 0, 0)."""
+        """Home the nozzle to origin (0, 0, 0) using G28 command."""
         if self.emergency_stop_active:
             return CommandAck(
                 id=f"home_nozzle_{int(time.time() * 1000)}",
@@ -162,56 +270,36 @@ class ConnectedHardware(HardwareInterface):
                 timestamp=time.time()
             )
         
-        # Send G28 (home all axes) command to printer
-        self.printer_serial.write(b"G28\n")
+        # G28 = Auto Home (moves all axes to the limit switches)
+        # Homing can take 30-60 seconds, so use a longer timeout
+        self.system_status = SystemStatus.HOMING
+        ack = await self._send_gcode("G28", timeout=60.0)
         
-        # Homing can take 30+ seconds, so we need to read multiple responses
-        # Keep reading until we get "ok" or timeout after reasonable time
-        max_wait_time = 60  # 60 seconds max for homing
-        start_time = time.time()
-        homing_complete = False
+        if ack.status == CommandStatus.OK:
+            # Update position to origin after successful homing
+            self.nozzle_pos = Position(0.0, 0.0, 0.0)
+            self.system_status = SystemStatus.IDLE
+            ack.message = "Homing completed"
+        else:
+            self.system_status = SystemStatus.ERROR
         
-        while (time.time() - start_time) < max_wait_time:
-            try:
-                # Use a shorter timeout per readline, but keep trying
-                response = self.printer_serial.readline().decode().strip()
-                if response:
-                    if "ok" in response.lower():
-                        homing_complete = True
-                        break
-                    # Printer might send status updates during homing, continue reading
-            except Exception as e:
-                # If readline times out, continue waiting
-                await asyncio.sleep(0.1)
-                continue
-        
-        if not homing_complete:
-            return CommandAck(
-                id=f"home_nozzle_{int(time.time() * 1000)}",
-                status=CommandStatus.ERROR,
-                message="Homing timeout - printer did not respond within 60 seconds",
-                timestamp=time.time()
-            )
-        
-        # Update position to origin
-        self.nozzle_pos = Position(0.0, 0.0, 0.0)
-        
-        return CommandAck(
-            id=f"home_nozzle_{int(time.time() * 1000)}",
-            status=CommandStatus.OK,
-            message="Homing completed",
-            timestamp=time.time()
-        )
+        return ack
     
     # Emergency stop
     async def emergency_stop(self) -> CommandAck:
-        """Emergency stop all movement."""
+        """Emergency stop all movement using M112 command."""
         self.emergency_stop_active = True
         self.nozzle_moving = False
         self.system_status = SystemStatus.EMERGENCY_STOP
         
-        # Send emergency stop to printer
-        self.printer_serial.write(b"M112\n")  # Emergency stop G-code
+        # M112 = Emergency stop G-code
+        # Don't wait for response - emergency stop should be immediate
+        if self.printer_serial and self.printer_serial.is_open:
+            # Serial.write() is blocking, run it in executor
+            def _write_emergency_stop():
+                self.printer_serial.write(b"M112\n")
+            
+            await self._run_in_executor(_write_emergency_stop)
         
         return CommandAck(
             id=f"emergency_stop_{int(time.time() * 1000)}",
@@ -257,6 +345,93 @@ class ConnectedHardware(HardwareInterface):
         filename = f"capture_{int(time.time() * 1000)}.jpg"
         print(f"Capturing high-res image: {filename}")
         return filename
+    
+    async def get_temperature(self) -> Dict[str, Any]:
+        """
+        Query printer temperature using M105 command.
+        
+        Returns:
+            Dict with 'nozzle_temp' and 'bed_temp' if successful, None otherwise
+        """
+        if not self.printer_serial or not self.printer_serial.is_open:
+            return None
+        
+        # M105 = Report Temperature
+        # Send command (blocking, run in executor)
+        def _write_temp_query():
+            self.printer_serial.write(b"M105\n")
+        
+        await self._run_in_executor(_write_temp_query)
+        
+        # Read response (M105 typically returns something like "ok T:25.0 /0.0 B:25.0 /0.0")
+        start_time = time.time()
+        while (time.time() - start_time) < 2.0:  # 2 second timeout
+            try:
+                # Serial.readline() is blocking, run it in executor
+                def _read_temp_line():
+                    return self.printer_serial.readline().decode('utf-8').strip()
+                
+                line = await self._run_in_executor(_read_temp_line)
+                
+                if line:
+                    # Parse temperature from response
+                    # Format is typically: "ok T:25.0 /200.0 B:60.0 /60.0"
+                    # T = current nozzle temp, / = target nozzle temp
+                    # B = current bed temp, / = target bed temp
+                    import re
+                    temp_match = re.search(r'T:([\d.]+)', line)
+                    bed_match = re.search(r'B:([\d.]+)', line)
+                    
+                    if temp_match and bed_match:
+                        return {
+                            'nozzle_temp': float(temp_match.group(1)),
+                            'bed_temp': float(bed_match.group(1))
+                        }
+                    if 'ok' in line.lower():
+                        break  # Got ok but couldn't parse temps
+            except Exception:
+                await asyncio.sleep(0.1)
+                continue
+        
+        return None
+    
+    async def get_firmware_info(self) -> Optional[str]:
+        """
+        Query printer firmware information using M115 command.
+        
+        Returns:
+            Firmware info string if successful, None otherwise
+        """
+        if not self.printer_serial or not self.printer_serial.is_open:
+            return None
+        
+        # M115 = Get Firmware Version and Capabilities
+        # Serial.write() is blocking, run it in executor
+        def _write_firmware_query():
+            self.printer_serial.write(b"M115\n")
+        
+        await self._run_in_executor(_write_firmware_query)
+        
+        # Read response (may be multiple lines)
+        start_time = time.time()
+        info_lines = []
+        while (time.time() - start_time) < 3.0:  # 3 second timeout
+            try:
+                # Serial.readline() is blocking, run it in executor
+                def _read_firmware_line():
+                    return self.printer_serial.readline().decode('utf-8').strip()
+                
+                line = await self._run_in_executor(_read_firmware_line)
+                
+                if line:
+                    if 'ok' in line.lower():
+                        break
+                    info_lines.append(line)
+            except Exception:
+                await asyncio.sleep(0.1)
+                continue
+        
+        return '\n'.join(info_lines) if info_lines else None
     
     # Telemetry and status
     async def get_telemetry(self) -> TelemetryData:
